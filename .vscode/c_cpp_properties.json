@@ -1,0 +1,28 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "~/Arduino/libraries/RTClib/src",
+                "~/.arduino15/packages/arduino/tools/**",
+                "~/Arduino/libraries/**",
+                "/usr/bin/libraries/**",
+                "~/.arduino15/packages/arduino/hardware/avr/1.8.3/**",
+                "~/.arduino15/packages/arduino/hardware/avr/1.8.3/**",
+                "~/Arduino/libraries/**",
+                "~/.arduino15/packages/arduino/tools/**"
+            ],
+            "forcedInclude": [
+                "~/.arduino15/packages/arduino/hardware/avr/1.8.3/cores/arduino/Arduino.h"
+            ],
+            "defines": [
+                "USBCON"
+            ],
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17"
+        }
+    ],
+    "version": 4
+}

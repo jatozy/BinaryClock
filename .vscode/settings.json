@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "chrono": "cpp",
+        "condition_variable": "cpp",
+        "mutex": "cpp"
+    },
+    "editor.formatOnSave": true
+}

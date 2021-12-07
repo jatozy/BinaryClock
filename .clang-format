@@ -1,0 +1,27 @@
+IndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+UseTab: Never
+ColumnLimit: 100
+AlignAfterOpenBracket: Align
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+BinPackArguments: false
+BinPackParameters: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BreakBeforeBraces: Custom
+BraceWrapping:
+    AfterEnum: true
+    AfterStruct: true
+    AfterClass: true
+    AfterControlStatement: true
+    AfterFunction: true
+    AfterNamespace: true
+    AfterUnion: true
+    BeforeCatch: true
+    BeforeElse: true
+IndentCaseLabels: false
+PenaltyReturnTypeOnItsOwnLine: 10000
+AlwaysBreakTemplateDeclarations: true
+PointerAlignment: Left
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
