@@ -18,14 +18,14 @@ union TimePointValue
     uint8_t value;
     struct
     {
-        int bit7 : 1;
-        int bit6 : 1;
-        int bit5 : 1;
-        int bit4 : 1;
-        int bit3 : 1;
-        int bit2 : 1;
-        int bit1 : 1;
         int bit0 : 1;
+        int bit1 : 1;
+        int bit2 : 1;
+        int bit3 : 1;
+        int bit4 : 1;
+        int bit5 : 1;
+        int bit6 : 1;
+        int bit7 : 1;
     };
 };
 
@@ -57,6 +57,9 @@ public:
     void execute();
 
 private:
+    void printSeconds(const TimePoint& timePoint);
+
+private:
     TimePointReader m_readTimePoint = nullptr;
     PinWriter m_writePin = nullptr;
 };
@@ -68,7 +71,7 @@ Clock::Clock(TimePointReader readTimePoint, PinWriter writePin)
 
 void Clock::execute()
 {
-    if (!m_readTimePoint)
+    if (!m_readTimePoint || !m_writePin)
     {
         return;
     }
@@ -80,14 +83,32 @@ void Clock::execute()
     Serial.print(':');
     Serial.print(timePoint.second.value, DEC);
     Serial.print('\n');
+
+    printSeconds(timePoint);
+}
+
+void Clock::printSeconds(const TimePoint& timePoint)
+{
+    m_writePin(binary_clock::SECONDS_GND, 1);
+    m_writePin(binary_clock::SECONDS_GND, 1);
+    m_writePin(binary_clock::SECONDS_GND, 1);
+
+    m_writePin(binary_clock::PIN_1, timePoint.second.bit0);
+    m_writePin(binary_clock::PIN_2, timePoint.second.bit1);
+    m_writePin(binary_clock::PIN_4, timePoint.second.bit2);
+    m_writePin(binary_clock::PIN_8, timePoint.second.bit3);
+    m_writePin(binary_clock::PIN_16, timePoint.second.bit4);
+    m_writePin(binary_clock::PIN_32, timePoint.second.bit5);
+    m_writePin(binary_clock::SECONDS_GND, 0);
 }
 } // namespace binary_clock
 
 binary_clock::TimePoint readCurrentTimePoint();
+void writePin(uint8_t pin, uint8_t value);
 
 RTC_DS3231 rtc;
 unsigned int timer = 0;
-binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite);
+binary_clock::Clock clock(&readCurrentTimePoint, &writePin);
 
 void setup()
 {
@@ -139,6 +160,8 @@ void loop()
     {
         timer = 0;
         clock.execute();
+        Serial.print(timer, DEC);
+        Serial.print('\n');
     }
 }
 
@@ -157,4 +180,9 @@ binary_clock::TimePoint readCurrentTimePoint()
     result.second.value = now.second();
 
     return result;
+}
+
+void writePin(uint8_t pin, uint8_t value)
+{
+    digitalWrite(pin, value);
 }
