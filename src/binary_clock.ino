@@ -65,6 +65,7 @@ private:
     };
 
 private:
+    void readAndPrintTime();
     void printSecond(const TimePoint& timePoint);
     void printMinute(const TimePoint& timePoint);
     void printHour(const TimePoint& timePoint);
@@ -88,6 +89,11 @@ void Clock::execute()
         return;
     }
 
+    readAndPrintTime();
+}
+
+void Clock::readAndPrintTime()
+{
     const auto timePoint = m_readTimePoint();
 
     if (m_nextTimeWriter == SelectedTimeWriter::Second)
