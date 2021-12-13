@@ -56,7 +56,7 @@ public:
     /**
      * @brief Call this function every 5 milliseconds.
      */
-    void readAndPrintTime();
+    void controllLeds();
 
     /**
      * @brief Call this function every 10 milliseconds.
@@ -77,10 +77,11 @@ private:
     static constexpr auto DFC77_NECESSARY_SAMPLES = 40;
 
 private:
-    void printSecond(const TimePoint& timePoint);
-    void printMinute(const TimePoint& timePoint);
-    void printHour(const TimePoint& timePoint);
-    void printTimePoint(const TimePointValue& value, int groundPin);
+    void printTimeOnLeds();
+    void printSecond(const TimePoint& timePoint) const;
+    void printMinute(const TimePoint& timePoint) const;
+    void printHour(const TimePoint& timePoint) const;
+    void printTimePoint(const TimePointValue& value, int groundPin) const;
 
     void synchronizeDcf77(int sample);
     void readAndInterpretDcf77(int sample);
@@ -164,13 +165,17 @@ void Clock::synchronizeDcf77(int sample)
     }
 }
 
-void Clock::readAndPrintTime()
+void Clock::controllLeds()
 {
     if (!m_readTimePoint || !m_writePin)
     {
         return;
     }
 
+    printTimeOnLeds();
+}
+void Clock::printTimeOnLeds()
+{
     const auto timePoint = m_readTimePoint();
 
     if (m_nextTimeWriter == SelectedTimeWriter::Second)
@@ -190,22 +195,22 @@ void Clock::readAndPrintTime()
     }
 }
 
-void Clock::printSecond(const TimePoint& timePoint)
+void Clock::printSecond(const TimePoint& timePoint) const
 {
     printTimePoint(timePoint.second, SECONDS_GND);
 }
 
-void Clock::printMinute(const TimePoint& timePoint)
+void Clock::printMinute(const TimePoint& timePoint) const
 {
     printTimePoint(timePoint.minute, MINUTES_GND);
 }
 
-void Clock::printHour(const TimePoint& timePoint)
+void Clock::printHour(const TimePoint& timePoint) const
 {
     printTimePoint(timePoint.hour, HOURS_GND);
 }
 
-void Clock::printTimePoint(const TimePointValue& value, int groundPin)
+void Clock::printTimePoint(const TimePointValue& value, int groundPin) const
 {
     m_writePin(HOURS_GND, 1);
     m_writePin(MINUTES_GND, 1);
@@ -277,7 +282,7 @@ void loop()
     if (ledTimer >= 5)
     {
         ledTimer = 0;
-        clock.readAndPrintTime();
+        clock.controllLeds();
     }
 
     if (dcf77Timer >= 10)
