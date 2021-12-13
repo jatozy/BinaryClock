@@ -45,6 +45,7 @@ struct TimePoint
 
 using TimePointReader = TimePoint (*)();
 using PinWriter = void (*)(uint8_t pin, uint8_t value);
+using PinReader = int (*)(uint8_t pin);
 
 class Clock
 {
@@ -146,11 +147,10 @@ void Clock::printTimePoint(const TimePointValue& value, int groundPin)
 } // namespace binary_clock
 
 binary_clock::TimePoint readCurrentTimePoint();
-void writePin(uint8_t pin, uint8_t value);
 
 RTC_DS3231 rtc;
 unsigned int timer = 0;
-binary_clock::Clock clock(&readCurrentTimePoint, &writePin);
+binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite);
 
 void setup()
 {
@@ -220,9 +220,4 @@ binary_clock::TimePoint readCurrentTimePoint()
     result.second.value = now.second();
 
     return result;
-}
-
-void writePin(uint8_t pin, uint8_t value)
-{
-    digitalWrite(pin, value);
 }
