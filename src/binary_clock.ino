@@ -71,11 +71,19 @@ private:
         Hour
     };
 
+    static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
+    static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 5;
+    static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 90;
+    static constexpr auto DFC77_NECESSARY_SAMPLES = 40;
+
 private:
     void printSecond(const TimePoint& timePoint);
     void printMinute(const TimePoint& timePoint);
     void printHour(const TimePoint& timePoint);
     void printTimePoint(const TimePointValue& value, int groundPin);
+
+    void synchronizeDcf77(int sample);
+    void readAndInterpretDcf77(int sample);
 
 private:
     TimePointReader m_readTimePoint = nullptr;
@@ -83,6 +91,12 @@ private:
     PinReader m_readPin = nullptr;
 
     SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
+    bool m_realTimeClockCanBeUsed = false;
+
+    bool m_dcf77IsSynchronized = false;
+    uint8_t m_dcf77IgnoreSamples = 0;
+    uint8_t m_dcf77SampleCounter = 0;
+    uint8_t m_dcf77Samples[DFC77_NECESSARY_SAMPLES] = {0};
 };
 
 Clock::Clock(TimePointReader readTimePoint, PinWriter writePin, PinReader readPin)
@@ -99,14 +113,54 @@ void Clock::processDcf77Signal()
 
     const auto dcf77Sample = m_readPin(DCF77_SIGNAL);
 
-    static int sampleCount = 0;
+    if (!m_dcf77IsSynchronized)
+    {
+        synchronizeDcf77(dcf77Sample);
+    }
+    else
+    {
+        readAndInterpretDcf77(dcf77Sample);
+    }
+}
 
-    Serial.print(dcf77Sample, DEC);
-    sampleCount++;
-    if (sampleCount >= 100)
+void Clock::readAndInterpretDcf77(int sample)
+{
+    if (m_dcf77IgnoreSamples > 0)
+    {
+        m_dcf77IgnoreSamples--;
+        return;
+    }
+
+    if (m_dcf77SampleCounter < DFC77_NECESSARY_SAMPLES)
+    {
+        Serial.print(sample, DEC);
+    }
+
+    m_dcf77SampleCounter++;
+
+    if (m_dcf77SampleCounter >= DFC77_SAMPLES_IN_SECOND)
     {
         Serial.print('\n');
-        sampleCount = 0;
+        m_dcf77SampleCounter = 0;
+    }
+}
+
+void Clock::synchronizeDcf77(int sample)
+{
+    if (sample == 0)
+    {
+        m_dcf77SampleCounter++;
+    }
+    else
+    {
+        m_dcf77SampleCounter = 0;
+    }
+
+    if (m_dcf77SampleCounter == DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION)
+    {
+        m_dcf77IsSynchronized = true;
+        m_dcf77IgnoreSamples = DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION;
+        m_dcf77SampleCounter = 0;
     }
 }
 
