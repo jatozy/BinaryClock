@@ -57,11 +57,23 @@ public:
     void execute();
 
 private:
-    void printSeconds(const TimePoint& timePoint);
+    enum class SelectedTimeWriter
+    {
+        Second,
+        Minute,
+        Hour
+    };
+
+private:
+    void printSecond(const TimePoint& timePoint);
+    void printMinute(const TimePoint& timePoint);
+    void printHour(const TimePoint& timePoint);
 
 private:
     TimePointReader m_readTimePoint = nullptr;
     PinWriter m_writePin = nullptr;
+
+    SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
 };
 
 Clock::Clock(TimePointReader readTimePoint, PinWriter writePin)
@@ -77,20 +89,28 @@ void Clock::execute()
     }
 
     const auto timePoint = m_readTimePoint();
-    Serial.print(timePoint.hour.value, DEC);
-    Serial.print(':');
-    Serial.print(timePoint.minute.value, DEC);
-    Serial.print(':');
-    Serial.print(timePoint.second.value, DEC);
-    Serial.print('\n');
 
-    printSeconds(timePoint);
+    if (m_nextTimeWriter == SelectedTimeWriter::Second)
+    {
+        printSecond(timePoint);
+        m_nextTimeWriter = SelectedTimeWriter::Minute;
+    }
+    else if (m_nextTimeWriter == SelectedTimeWriter::Minute)
+    {
+        printMinute(timePoint);
+        m_nextTimeWriter = SelectedTimeWriter::Hour;
+    }
+    else if (m_nextTimeWriter == SelectedTimeWriter::Hour)
+    {
+        printHour(timePoint);
+        m_nextTimeWriter = SelectedTimeWriter::Second;
+    }
 }
 
-void Clock::printSeconds(const TimePoint& timePoint)
+void Clock::printSecond(const TimePoint& timePoint)
 {
-    m_writePin(binary_clock::SECONDS_GND, 1);
-    m_writePin(binary_clock::SECONDS_GND, 1);
+    m_writePin(binary_clock::HOURS_GND, 1);
+    m_writePin(binary_clock::MINUTES_GND, 1);
     m_writePin(binary_clock::SECONDS_GND, 1);
 
     m_writePin(binary_clock::PIN_1, timePoint.second.bit0);
@@ -100,6 +120,36 @@ void Clock::printSeconds(const TimePoint& timePoint)
     m_writePin(binary_clock::PIN_16, timePoint.second.bit4);
     m_writePin(binary_clock::PIN_32, timePoint.second.bit5);
     m_writePin(binary_clock::SECONDS_GND, 0);
+}
+
+void Clock::printMinute(const TimePoint& timePoint)
+{
+    m_writePin(binary_clock::HOURS_GND, 1);
+    m_writePin(binary_clock::MINUTES_GND, 1);
+    m_writePin(binary_clock::SECONDS_GND, 1);
+
+    m_writePin(binary_clock::PIN_1, timePoint.minute.bit0);
+    m_writePin(binary_clock::PIN_2, timePoint.minute.bit1);
+    m_writePin(binary_clock::PIN_4, timePoint.minute.bit2);
+    m_writePin(binary_clock::PIN_8, timePoint.minute.bit3);
+    m_writePin(binary_clock::PIN_16, timePoint.minute.bit4);
+    m_writePin(binary_clock::PIN_32, timePoint.minute.bit5);
+    m_writePin(binary_clock::MINUTES_GND, 0);
+}
+
+void Clock::printHour(const TimePoint& timePoint)
+{
+    m_writePin(binary_clock::HOURS_GND, 1);
+    m_writePin(binary_clock::MINUTES_GND, 1);
+    m_writePin(binary_clock::SECONDS_GND, 1);
+
+    m_writePin(binary_clock::PIN_1, timePoint.hour.bit0);
+    m_writePin(binary_clock::PIN_2, timePoint.hour.bit1);
+    m_writePin(binary_clock::PIN_4, timePoint.hour.bit2);
+    m_writePin(binary_clock::PIN_8, timePoint.hour.bit3);
+    m_writePin(binary_clock::PIN_16, timePoint.hour.bit4);
+    m_writePin(binary_clock::PIN_32, timePoint.hour.bit5);
+    m_writePin(binary_clock::HOURS_GND, 0);
 }
 } // namespace binary_clock
 
@@ -156,12 +206,10 @@ void setup()
 
 void loop()
 {
-    if (timer >= 1000)
+    if (timer >= 5)
     {
         timer = 0;
         clock.execute();
-        Serial.print(timer, DEC);
-        Serial.print('\n');
     }
 }
 
