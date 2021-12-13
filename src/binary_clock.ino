@@ -69,6 +69,7 @@ private:
     void printSecond(const TimePoint& timePoint);
     void printMinute(const TimePoint& timePoint);
     void printHour(const TimePoint& timePoint);
+    void printTimePoint(const TimePointValue& value, int groundPin);
 
 private:
     TimePointReader m_readTimePoint = nullptr;
@@ -115,47 +116,32 @@ void Clock::readAndPrintTime()
 
 void Clock::printSecond(const TimePoint& timePoint)
 {
-    m_writePin(binary_clock::HOURS_GND, 1);
-    m_writePin(binary_clock::MINUTES_GND, 1);
-    m_writePin(binary_clock::SECONDS_GND, 1);
-
-    m_writePin(binary_clock::PIN_1, timePoint.second.bit0);
-    m_writePin(binary_clock::PIN_2, timePoint.second.bit1);
-    m_writePin(binary_clock::PIN_4, timePoint.second.bit2);
-    m_writePin(binary_clock::PIN_8, timePoint.second.bit3);
-    m_writePin(binary_clock::PIN_16, timePoint.second.bit4);
-    m_writePin(binary_clock::PIN_32, timePoint.second.bit5);
-    m_writePin(binary_clock::SECONDS_GND, 0);
+    printTimePoint(timePoint.second, binary_clock::SECONDS_GND);
 }
 
 void Clock::printMinute(const TimePoint& timePoint)
 {
-    m_writePin(binary_clock::HOURS_GND, 1);
-    m_writePin(binary_clock::MINUTES_GND, 1);
-    m_writePin(binary_clock::SECONDS_GND, 1);
-
-    m_writePin(binary_clock::PIN_1, timePoint.minute.bit0);
-    m_writePin(binary_clock::PIN_2, timePoint.minute.bit1);
-    m_writePin(binary_clock::PIN_4, timePoint.minute.bit2);
-    m_writePin(binary_clock::PIN_8, timePoint.minute.bit3);
-    m_writePin(binary_clock::PIN_16, timePoint.minute.bit4);
-    m_writePin(binary_clock::PIN_32, timePoint.minute.bit5);
-    m_writePin(binary_clock::MINUTES_GND, 0);
+    printTimePoint(timePoint.minute, binary_clock::MINUTES_GND);
 }
 
 void Clock::printHour(const TimePoint& timePoint)
+{
+    printTimePoint(timePoint.hour, binary_clock::HOURS_GND);
+}
+
+void Clock::printTimePoint(const TimePointValue& value, int groundPin)
 {
     m_writePin(binary_clock::HOURS_GND, 1);
     m_writePin(binary_clock::MINUTES_GND, 1);
     m_writePin(binary_clock::SECONDS_GND, 1);
 
-    m_writePin(binary_clock::PIN_1, timePoint.hour.bit0);
-    m_writePin(binary_clock::PIN_2, timePoint.hour.bit1);
-    m_writePin(binary_clock::PIN_4, timePoint.hour.bit2);
-    m_writePin(binary_clock::PIN_8, timePoint.hour.bit3);
-    m_writePin(binary_clock::PIN_16, timePoint.hour.bit4);
-    m_writePin(binary_clock::PIN_32, timePoint.hour.bit5);
-    m_writePin(binary_clock::HOURS_GND, 0);
+    m_writePin(binary_clock::PIN_1, value.bit0);
+    m_writePin(binary_clock::PIN_2, value.bit1);
+    m_writePin(binary_clock::PIN_4, value.bit2);
+    m_writePin(binary_clock::PIN_8, value.bit3);
+    m_writePin(binary_clock::PIN_16, value.bit4);
+    m_writePin(binary_clock::PIN_32, value.bit5);
+    m_writePin(groundPin, 0);
 }
 } // namespace binary_clock
 
