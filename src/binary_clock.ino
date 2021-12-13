@@ -2,17 +2,6 @@
 
 namespace binary_clock
 {
-constexpr auto HOURS_GND = 4;
-constexpr auto MINUTES_GND = 7;
-constexpr auto SECONDS_GND = 8;
-constexpr auto PIN_32 = 3;
-constexpr auto PIN_16 = 5;
-constexpr auto PIN_8 = 6;
-constexpr auto PIN_4 = 11;
-constexpr auto PIN_2 = 10;
-constexpr auto PIN_1 = 9;
-constexpr auto DCF77_SIGNAL = 12;
-
 union TimePointValue
 {
     uint8_t value;
@@ -50,12 +39,29 @@ using PinReader = int (*)(uint8_t pin);
 class Clock
 {
 public:
-    Clock(TimePointReader timePointReader, PinWriter writePin);
+    static constexpr auto HOURS_GND = 4;
+    static constexpr auto MINUTES_GND = 7;
+    static constexpr auto SECONDS_GND = 8;
+    static constexpr auto PIN_32 = 3;
+    static constexpr auto PIN_16 = 5;
+    static constexpr auto PIN_8 = 6;
+    static constexpr auto PIN_4 = 11;
+    static constexpr auto PIN_2 = 10;
+    static constexpr auto PIN_1 = 9;
+    static constexpr auto DCF77_SIGNAL = 12;
+
+public:
+    Clock(TimePointReader timePointReader, PinWriter writePin, PinReader readPin);
+
+    /**
+     * @brief Call this function every 5 milliseconds.
+     */
+    void readAndPrintTime();
 
     /**
      * @brief Call this function every 10 milliseconds.
      */
-    void execute();
+    void processDcf77Signal();
 
 private:
     enum class SelectedTimeWriter
@@ -66,7 +72,6 @@ private:
     };
 
 private:
-    void readAndPrintTime();
     void printSecond(const TimePoint& timePoint);
     void printMinute(const TimePoint& timePoint);
     void printHour(const TimePoint& timePoint);
@@ -75,27 +80,43 @@ private:
 private:
     TimePointReader m_readTimePoint = nullptr;
     PinWriter m_writePin = nullptr;
+    PinReader m_readPin = nullptr;
 
     SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
 };
 
-Clock::Clock(TimePointReader readTimePoint, PinWriter writePin)
-    : m_readTimePoint(readTimePoint), m_writePin(writePin)
+Clock::Clock(TimePointReader readTimePoint, PinWriter writePin, PinReader readPin)
+    : m_readTimePoint(readTimePoint), m_writePin(writePin), m_readPin(readPin)
 {
 }
 
-void Clock::execute()
+void Clock::processDcf77Signal()
+{
+    if (!m_readPin)
+    {
+        return;
+    }
+
+    const auto dcf77Sample = m_readPin(DCF77_SIGNAL);
+
+    static int sampleCount = 0;
+
+    Serial.print(dcf77Sample, DEC);
+    sampleCount++;
+    if (sampleCount >= 100)
+    {
+        Serial.print('\n');
+        sampleCount = 0;
+    }
+}
+
+void Clock::readAndPrintTime()
 {
     if (!m_readTimePoint || !m_writePin)
     {
         return;
     }
 
-    readAndPrintTime();
-}
-
-void Clock::readAndPrintTime()
-{
     const auto timePoint = m_readTimePoint();
 
     if (m_nextTimeWriter == SelectedTimeWriter::Second)
@@ -117,31 +138,31 @@ void Clock::readAndPrintTime()
 
 void Clock::printSecond(const TimePoint& timePoint)
 {
-    printTimePoint(timePoint.second, binary_clock::SECONDS_GND);
+    printTimePoint(timePoint.second, SECONDS_GND);
 }
 
 void Clock::printMinute(const TimePoint& timePoint)
 {
-    printTimePoint(timePoint.minute, binary_clock::MINUTES_GND);
+    printTimePoint(timePoint.minute, MINUTES_GND);
 }
 
 void Clock::printHour(const TimePoint& timePoint)
 {
-    printTimePoint(timePoint.hour, binary_clock::HOURS_GND);
+    printTimePoint(timePoint.hour, HOURS_GND);
 }
 
 void Clock::printTimePoint(const TimePointValue& value, int groundPin)
 {
-    m_writePin(binary_clock::HOURS_GND, 1);
-    m_writePin(binary_clock::MINUTES_GND, 1);
-    m_writePin(binary_clock::SECONDS_GND, 1);
+    m_writePin(HOURS_GND, 1);
+    m_writePin(MINUTES_GND, 1);
+    m_writePin(SECONDS_GND, 1);
 
-    m_writePin(binary_clock::PIN_1, value.bit0);
-    m_writePin(binary_clock::PIN_2, value.bit1);
-    m_writePin(binary_clock::PIN_4, value.bit2);
-    m_writePin(binary_clock::PIN_8, value.bit3);
-    m_writePin(binary_clock::PIN_16, value.bit4);
-    m_writePin(binary_clock::PIN_32, value.bit5);
+    m_writePin(PIN_1, value.bit0);
+    m_writePin(PIN_2, value.bit1);
+    m_writePin(PIN_4, value.bit2);
+    m_writePin(PIN_8, value.bit3);
+    m_writePin(PIN_16, value.bit4);
+    m_writePin(PIN_32, value.bit5);
     m_writePin(groundPin, 0);
 }
 } // namespace binary_clock
@@ -149,8 +170,9 @@ void Clock::printTimePoint(const TimePointValue& value, int groundPin)
 binary_clock::TimePoint readCurrentTimePoint();
 
 RTC_DS3231 rtc;
-unsigned int timer = 0;
-binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite);
+unsigned int ledTimer = 0;
+unsigned int dcf77Timer = 0;
+binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite, digitalRead);
 
 void setup()
 {
@@ -180,34 +202,41 @@ void setup()
     TCCR0B |= (1 << CS01); // Set the prescale 1/64 clock
     TCCR0B |= (1 << CS00);
 
-    pinMode(binary_clock::SECONDS_GND, OUTPUT);
-    pinMode(binary_clock::MINUTES_GND, OUTPUT);
-    pinMode(binary_clock::HOURS_GND, OUTPUT);
-    pinMode(binary_clock::PIN_1, OUTPUT);
-    pinMode(binary_clock::PIN_2, OUTPUT);
-    pinMode(binary_clock::PIN_4, OUTPUT);
-    pinMode(binary_clock::PIN_8, OUTPUT);
-    pinMode(binary_clock::PIN_16, OUTPUT);
-    pinMode(binary_clock::PIN_32, OUTPUT);
-    pinMode(binary_clock::DCF77_SIGNAL, INPUT_PULLUP);
+    pinMode(binary_clock::Clock::SECONDS_GND, OUTPUT);
+    pinMode(binary_clock::Clock::MINUTES_GND, OUTPUT);
+    pinMode(binary_clock::Clock::HOURS_GND, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_1, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_2, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_4, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_8, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_16, OUTPUT);
+    pinMode(binary_clock::Clock::PIN_32, OUTPUT);
+    pinMode(binary_clock::Clock::DCF77_SIGNAL, INPUT_PULLUP);
 
-    digitalWrite(binary_clock::SECONDS_GND, HIGH);
-    digitalWrite(binary_clock::MINUTES_GND, HIGH);
-    digitalWrite(binary_clock::HOURS_GND, HIGH);
+    digitalWrite(binary_clock::Clock::SECONDS_GND, HIGH);
+    digitalWrite(binary_clock::Clock::MINUTES_GND, HIGH);
+    digitalWrite(binary_clock::Clock::HOURS_GND, HIGH);
 }
 
 void loop()
 {
-    if (timer >= 5)
+    if (ledTimer >= 5)
     {
-        timer = 0;
-        clock.execute();
+        ledTimer = 0;
+        clock.readAndPrintTime();
+    }
+
+    if (dcf77Timer >= 10)
+    {
+        dcf77Timer = 0;
+        clock.processDcf77Signal();
     }
 }
 
 ISR(TIMER0_COMPA_vect)
 {
-    timer++;
+    ledTimer++;
+    dcf77Timer++;
 }
 
 binary_clock::TimePoint readCurrentTimePoint()
