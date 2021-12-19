@@ -35,6 +35,7 @@ struct TimePoint
 using TimePointReader = TimePoint (*)();
 using PinWriter = void (*)(uint8_t pin, uint8_t value);
 using PinReader = int (*)(uint8_t pin);
+using AdjustRtc = void (*)(uint8_t hour, uint8_t minute);
 
 class Clock
 {
@@ -51,7 +52,10 @@ public:
     static constexpr auto DCF77_SIGNAL = 12;
 
 public:
-    Clock(TimePointReader timePointReader, PinWriter writePin, PinReader readPin);
+    Clock(TimePointReader timePointReader,
+          PinWriter writePin,
+          PinReader readPin,
+          AdjustRtc adjustRtc);
 
     /**
      * @brief Call this function every 5 milliseconds.
@@ -73,7 +77,7 @@ private:
 
     static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
     static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 15;
-    static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 80;
+    static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 60;
     static constexpr auto DFC77_NECESSARY_SAMPLES = 100;
     static constexpr auto DFC77_NUMBER_RECEIVED_BITS = 59;
     static constexpr auto SIZE_OF_HISTORY_OF_RECEIVED_ZEROS = 30;
@@ -99,9 +103,10 @@ private:
     TimePointReader m_readTimePoint = nullptr;
     PinWriter m_writePin = nullptr;
     PinReader m_readPin = nullptr;
+    AdjustRtc m_adjustRtc = nullptr;
 
     SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
-    bool m_realTimeClockCanBeUsed = false;
+    bool m_realTimeClockCanBeUsed = true;
     uint8_t m_historyOfReceivedZeros[SIZE_OF_HISTORY_OF_RECEIVED_ZEROS] = {0};
     uint8_t m_historyOfReceivedZerosCount = 0;
     TimePointValue m_meanValueOfReceivedZeros = {0};
@@ -117,11 +122,12 @@ private:
 } // namespace binary_clock
 
 binary_clock::TimePoint readCurrentTimePoint();
+void adjustRtc(uint8_t hour, uint8_t minute);
 
 RTC_DS3231 rtc;
 unsigned int ledTimer = 0;
 unsigned int dcf77Timer = 0;
-binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite, digitalRead);
+binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite, &digitalRead, &adjustRtc);
 
 void setup()
 {
@@ -129,18 +135,13 @@ void setup()
 
     if (!rtc.begin())
     {
-        Serial.println("Couldn't find RTC");
+        // Serial.println("Couldn't find RTC");
         Serial.flush();
         abort();
     }
 
-    Serial.println("Setting the time...");
-    // When time needs to be set on a new device, or after a power loss, the
-    // following line sets the RTC to the date & time this sketch was compiled
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // This line sets the RTC with an explicit date & time, for example to set
-    // January 21, 2014 at 3am you would call:
-    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+    // Serial.println("Setting the time...");
+    rtc.adjust(DateTime(0, 0, 0, 19, 35, 36));
 
     TCCR0A = (1 << WGM01); // Set the CTC mode
     OCR0A = 0xF9;          // Value for ORC0A for 1ms
@@ -200,11 +201,25 @@ binary_clock::TimePoint readCurrentTimePoint()
     return result;
 }
 
+void adjustRtc(uint8_t hour, uint8_t minute)
+{
+    DateTime newTime(0, 0, 0, hour, minute, 0);
+
+    // Serial.println("Adjust real time clock.");
+    //  rtc.adjust(newTime);
+}
+
 namespace binary_clock
 {
 
-Clock::Clock(TimePointReader readTimePoint, PinWriter writePin, PinReader readPin)
-    : m_readTimePoint(readTimePoint), m_writePin(writePin), m_readPin(readPin)
+Clock::Clock(TimePointReader readTimePoint,
+             PinWriter writePin,
+             PinReader readPin,
+             AdjustRtc adjustRtc)
+    : m_readTimePoint(readTimePoint),
+      m_writePin(writePin),
+      m_readPin(readPin),
+      m_adjustRtc(adjustRtc)
 {
 }
 
@@ -237,7 +252,7 @@ void Clock::readAndInterpretDcf77(int sample)
 
     if (m_dcf77SampleCounter < DFC77_NECESSARY_SAMPLES)
     {
-        Serial.print(sample, DEC);
+        // Serial.print(sample, DEC);
         m_dcf77NumberZerosPerSamplesSecond += (sample == 0) ? 1 : 0;
 
         if (m_dcf77SampleCounter < NUMBER_OF_LEADING_ONES_IN_SYNCHRONIZED_SIGNAL)
@@ -259,7 +274,7 @@ void Clock::readAndInterpretDcf77(int sample)
             interpretDcf77Second();
         }
 
-        Serial.print('\n');
+        // Serial.print('\n');
         calculateMeanNumberZerosForIdleDisplay();
         checkIfDcf77MustBeResynchronized();
         prepareDcf77VariablesForNextSecond();
@@ -297,9 +312,9 @@ void Clock::prepareDcf77VariablesForNextSecond()
 
 void Clock::checkIfDcf77MustBeResynchronized()
 {
-    if (m_leadingSamplesValue < 3)
+    if (m_leadingSamplesValue == 0)
     {
-        Serial.println("Resynchronize");
+        // Serial.println("Resynchronize");
         m_dcf77IsSynchronized = false;
     }
 }
@@ -335,27 +350,33 @@ void Clock::interpretAndUseDcf77Minute()
                (m_dcf77ReceivedBits[31] << 2) + (m_dcf77ReceivedBits[32] << 3);
     hour = hour + ((m_dcf77ReceivedBits[33] + (m_dcf77ReceivedBits[34] << 1)) * 10);
 
-    Serial.print('\t');
+    // Serial.print('\t');
     if (hour < 10)
     {
-        Serial.print('0');
+        // Serial.print('0');
     }
-    Serial.print(hour, DEC);
-    Serial.print(':');
+    // Serial.print(hour, DEC);
+    // Serial.print(':');
     if (minute < 10)
     {
-        Serial.print('0');
+        // Serial.print('0');
     }
-    Serial.print(minute, DEC);
-    Serial.print('\n');
-    Serial.print('\n');
+    // Serial.print(minute, DEC);
+    // Serial.print('\n');
+    // Serial.print('\n');
     for (const auto& i : m_dcf77ReceivedBits)
     {
-        Serial.print(i, DEC);
+        // Serial.print(i, DEC);
     }
-    Serial.print('\n');
-    Serial.print('\n');
+    // Serial.print('\n');
+    // Serial.print('\n');
     m_dcf77BitsCounter = 0;
+
+    if (m_adjustRtc)
+    {
+        m_adjustRtc(hour, minute);
+        m_realTimeClockCanBeUsed = true;
+    }
 }
 
 void Clock::synchronizeDcf77(int sample)
