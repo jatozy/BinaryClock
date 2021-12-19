@@ -74,7 +74,7 @@ private:
     static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
     static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 15;
     static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 80;
-    static constexpr auto DFC77_NECESSARY_SAMPLES = 100;
+    static constexpr auto DFC77_NECESSARY_SAMPLES = 90;
     static constexpr auto DFC77_NUMBER_RECEIVED_BITS = 59;
 
 private:
@@ -237,7 +237,7 @@ void Clock::readAndInterpretDcf77(int sample)
 
     if (m_dcf77SampleCounter >= DFC77_SAMPLES_IN_SECOND)
     {
-        if (m_dcf77NumberZerosPerSamplesSecond == 0)
+        if (m_dcf77NumberZerosPerSamplesSecond <= 5)
         {
             interpretAndUseDcf77Minute();
         }
@@ -267,6 +267,8 @@ void Clock::interpretDcf77Second()
     {
         m_dcf77ReceivedBits[m_dcf77BitsCounter] = 0;
     }
+
+    m_dcf77BitsCounter++;
 }
 
 void Clock::interpretAndUseDcf77Minute()
@@ -294,7 +296,13 @@ void Clock::interpretAndUseDcf77Minute()
     }
     Serial.print(minute, DEC);
     Serial.print('\n');
-
+    Serial.print('\n');
+    for (const auto& i : m_dcf77ReceivedBits)
+    {
+        Serial.print(i, DEC);
+    }
+    Serial.print('\n');
+    Serial.print('\n');
     m_dcf77BitsCounter = 0;
 }
 
