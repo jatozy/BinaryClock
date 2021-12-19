@@ -74,9 +74,10 @@ private:
     static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
     static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 15;
     static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 80;
-    static constexpr auto DFC77_NECESSARY_SAMPLES = 40;
+    static constexpr auto DFC77_NECESSARY_SAMPLES = 100;
     static constexpr auto DFC77_NUMBER_RECEIVED_BITS = 59;
     static constexpr auto SIZE_OF_HISTORY_OF_RECEIVED_ZEROS = 30;
+    static constexpr auto NUMBER_OF_LEADING_ONES_IN_SYNCHRONIZED_SIGNAL = 5;
 
 private:
     void printIdleStateOnLeds();
@@ -91,7 +92,8 @@ private:
     void interpretDcf77Second();
     void interpretAndUseDcf77Minute();
     void calculateMeanNumberZerosForIdleDisplay();
-    void prepareDcf77VariablesForNextMinute();
+    void prepareDcf77VariablesForNextSecond();
+    void checkIfDcf77MustBeResynchronized();
 
 private:
     TimePointReader m_readTimePoint = nullptr;
@@ -110,6 +112,7 @@ private:
     uint8_t m_dcf77BitsCounter = 0;
     uint8_t m_dcf77NumberZerosPerSamplesSecond = 0;
     uint8_t m_dcf77ReceivedBits[DFC77_NUMBER_RECEIVED_BITS] = {0};
+    uint8_t m_leadingSamplesValue = 0;
 };
 } // namespace binary_clock
 
@@ -236,6 +239,11 @@ void Clock::readAndInterpretDcf77(int sample)
     {
         Serial.print(sample, DEC);
         m_dcf77NumberZerosPerSamplesSecond += (sample == 0) ? 1 : 0;
+
+        if (m_dcf77SampleCounter < NUMBER_OF_LEADING_ONES_IN_SYNCHRONIZED_SIGNAL)
+        {
+            m_leadingSamplesValue += sample;
+        }
     }
 
     m_dcf77SampleCounter++;
@@ -253,7 +261,8 @@ void Clock::readAndInterpretDcf77(int sample)
 
         Serial.print('\n');
         calculateMeanNumberZerosForIdleDisplay();
-        prepareDcf77VariablesForNextMinute();
+        checkIfDcf77MustBeResynchronized();
+        prepareDcf77VariablesForNextSecond();
     }
 }
 
@@ -279,10 +288,20 @@ void Clock::calculateMeanNumberZerosForIdleDisplay()
     }
 }
 
-void Clock::prepareDcf77VariablesForNextMinute()
+void Clock::prepareDcf77VariablesForNextSecond()
 {
     m_dcf77NumberZerosPerSamplesSecond = 0;
     m_dcf77SampleCounter = 0;
+    m_leadingSamplesValue = 0;
+}
+
+void Clock::checkIfDcf77MustBeResynchronized()
+{
+    if (m_leadingSamplesValue < 3)
+    {
+        Serial.println("Resynchronize");
+        m_dcf77IsSynchronized = false;
+    }
 }
 
 void Clock::interpretDcf77Second()
