@@ -74,8 +74,9 @@ private:
     static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
     static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 15;
     static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 80;
-    static constexpr auto DFC77_NECESSARY_SAMPLES = 90;
+    static constexpr auto DFC77_NECESSARY_SAMPLES = 40;
     static constexpr auto DFC77_NUMBER_RECEIVED_BITS = 59;
+    static constexpr auto SIZE_OF_HISTORY_OF_RECEIVED_ZEROS = 30;
 
 private:
     void printIdleStateOnLeds();
@@ -89,6 +90,8 @@ private:
     void readAndInterpretDcf77(int sample);
     void interpretDcf77Second();
     void interpretAndUseDcf77Minute();
+    void calculateMeanNumberZerosForIdleDisplay();
+    void prepareDcf77VariablesForNextMinute();
 
 private:
     TimePointReader m_readTimePoint = nullptr;
@@ -97,7 +100,9 @@ private:
 
     SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
     bool m_realTimeClockCanBeUsed = false;
-    uint16_t m_idleStateCounter = 0;
+    uint8_t m_historyOfReceivedZeros[SIZE_OF_HISTORY_OF_RECEIVED_ZEROS] = {0};
+    uint8_t m_historyOfReceivedZerosCount = 0;
+    TimePointValue m_meanValueOfReceivedZeros = {0};
 
     bool m_dcf77IsSynchronized = false;
     uint8_t m_dcf77IgnoreSamples = 0;
@@ -247,9 +252,37 @@ void Clock::readAndInterpretDcf77(int sample)
         }
 
         Serial.print('\n');
-        m_dcf77NumberZerosPerSamplesSecond = 0;
-        m_dcf77SampleCounter = 0;
+        calculateMeanNumberZerosForIdleDisplay();
+        prepareDcf77VariablesForNextMinute();
     }
+}
+
+void Clock::calculateMeanNumberZerosForIdleDisplay()
+{
+    m_historyOfReceivedZeros[m_historyOfReceivedZerosCount] = m_dcf77NumberZerosPerSamplesSecond;
+    m_historyOfReceivedZerosCount++;
+    if (m_historyOfReceivedZerosCount >= SIZE_OF_HISTORY_OF_RECEIVED_ZEROS)
+    {
+        m_historyOfReceivedZerosCount = 0;
+    }
+
+    m_meanValueOfReceivedZeros.value = 0;
+    for (const auto& zeros : m_historyOfReceivedZeros)
+    {
+        m_meanValueOfReceivedZeros.value += zeros;
+    }
+    m_meanValueOfReceivedZeros.value /= SIZE_OF_HISTORY_OF_RECEIVED_ZEROS;
+
+    if (m_meanValueOfReceivedZeros.value >= 64)
+    {
+        m_meanValueOfReceivedZeros.value = 63;
+    }
+}
+
+void Clock::prepareDcf77VariablesForNextMinute()
+{
+    m_dcf77NumberZerosPerSamplesSecond = 0;
+    m_dcf77SampleCounter = 0;
 }
 
 void Clock::interpretDcf77Second()
@@ -348,121 +381,14 @@ void Clock::printIdleStateOnLeds()
     m_writePin(MINUTES_GND, 1);
     m_writePin(SECONDS_GND, 1);
 
-    if (m_idleStateCounter == 0)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 1);
-        m_writePin(PIN_8, 1);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 25)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 1);
-        m_writePin(PIN_8, 1);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 50)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 75)
-    {
-        m_writePin(PIN_1, 1);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 1);
-    }
-    else if (m_idleStateCounter == 100)
-    {
-        m_writePin(PIN_1, 1);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 1);
-    }
-    else if (m_idleStateCounter == 125)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 150)
-    {
-        m_writePin(PIN_1, 1);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 1);
-    }
-    else if (m_idleStateCounter == 175)
-    {
-        m_writePin(PIN_1, 1);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 1);
-    }
-    else if (m_idleStateCounter == 200)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 225)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 1);
-        m_writePin(PIN_4, 1);
-        m_writePin(PIN_8, 1);
-        m_writePin(PIN_16, 1);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 250)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 1);
-        m_writePin(PIN_8, 1);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 275)
-    {
-        m_writePin(PIN_1, 0);
-        m_writePin(PIN_2, 0);
-        m_writePin(PIN_4, 0);
-        m_writePin(PIN_8, 0);
-        m_writePin(PIN_16, 0);
-        m_writePin(PIN_32, 0);
-    }
-    else if (m_idleStateCounter == 325)
-    {
-        m_idleStateCounter = -1;
-    }
+    m_writePin(PIN_1, m_meanValueOfReceivedZeros.bit0);
+    m_writePin(PIN_2, m_meanValueOfReceivedZeros.bit1);
+    m_writePin(PIN_4, m_meanValueOfReceivedZeros.bit2);
+    m_writePin(PIN_8, m_meanValueOfReceivedZeros.bit3);
+    m_writePin(PIN_16, m_meanValueOfReceivedZeros.bit4);
+    m_writePin(PIN_32, m_meanValueOfReceivedZeros.bit5);
 
     m_writePin(MINUTES_GND, 0);
-    m_idleStateCounter++;
 }
 
 void Clock::printTimeOnLeds()
