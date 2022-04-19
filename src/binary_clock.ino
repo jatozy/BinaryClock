@@ -1,5 +1,4 @@
 #include <WiFi.h>
-#include <arduino-timer.h>
 #include <time.h>
 
 #include "wifi_credentials.hpp"
@@ -51,14 +50,11 @@ public:
     // https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
     static constexpr auto TIME_ZONE = "CET-1CEST,M3.5.0,M10.5.0/3";
 
-    static constexpr auto LED_UPDATE_INTERVAL_MS = 1000;
-    static constexpr auto TIMEPOINT_UPDATE_INTERVAL_MS = 10000;
-
     static constexpr auto HOURS_GND = 18;
     static constexpr auto MINUTES_GND = 19;
     static constexpr auto SECONDS_GND = 21;
-    static constexpr auto PIN_32 = 23;
-    static constexpr auto PIN_16 = 34;
+    static constexpr auto PIN_32 = 16;
+    static constexpr auto PIN_16 = 17;
     static constexpr auto PIN_8 = 32;
     static constexpr auto PIN_4 = 33;
     static constexpr auto PIN_2 = 26;
@@ -72,6 +68,10 @@ public:
      */
     void controllLeds();
 
+    /**
+     * @brief Call this function as often as you want. A good interval for calling this function
+     * is twice per second.
+     */
     void updateDisplayedTime(const TimePoint& displayedTime);
 
 private:
@@ -105,12 +105,16 @@ private:
 } // namespace binary_clock
 
 binary_clock::TimePoint readCurrentTimePoint();
-bool updateLeds(void*);
-bool updateDisplayedTime(void*);
+void IRAM_ATTR updateLeds();
+void IRAM_ATTR updateDisplayedTime();
 
-bool ledTimer = false;
-bool displayedTimeTimer = false;
-auto timer = timer_create_default();
+bool ledTimerHappened = true;
+bool displayedTimeTimerHappened = true;
+hw_timer_t* displayTimer = nullptr;
+portMUX_TYPE displayTimerMutex = portMUX_INITIALIZER_UNLOCKED;
+hw_timer_t* ledTimer = nullptr;
+portMUX_TYPE ledTimerMutex = portMUX_INITIALIZER_UNLOCKED;
+
 binary_clock::Clock binaryClock(&digitalWrite);
 
 void setup()
@@ -148,37 +152,48 @@ void setup()
     digitalWrite(binary_clock::Clock::MINUTES_GND, HIGH);
     digitalWrite(binary_clock::Clock::HOURS_GND, HIGH);
 
-    timer.every(binary_clock::Clock::LED_UPDATE_INTERVAL_MS, updateLeds);
-    timer.every(binary_clock::Clock::TIMEPOINT_UPDATE_INTERVAL_MS, updateDisplayedTime);
+    displayTimer = timerBegin(0, 80, true);
+    timerAttachInterrupt(displayTimer, &updateDisplayedTime, true);
+    timerAlarmWrite(displayTimer, 500000, true);
+    timerAlarmEnable(displayTimer);
+
+    ledTimer = timerBegin(1, 80, true);
+    timerAttachInterrupt(ledTimer, &updateLeds, true);
+    timerAlarmWrite(ledTimer, 5000, true);
+    timerAlarmEnable(ledTimer);
 }
 
 void loop()
 {
-    timer.tick();
-
-    if (ledTimer)
+    if (ledTimerHappened)
     {
         binaryClock.controllLeds();
-        ledTimer = false;
+        portENTER_CRITICAL(&ledTimerMutex);
+        ledTimerHappened = false;
+        portEXIT_CRITICAL(&ledTimerMutex);
     }
 
-    if (displayedTimeTimer)
+    if (displayedTimeTimerHappened)
     {
         binaryClock.updateDisplayedTime(readCurrentTimePoint());
-        displayedTimeTimer = false;
+        portENTER_CRITICAL(&displayTimerMutex);
+        displayedTimeTimerHappened = false;
+        portEXIT_CRITICAL(&displayTimerMutex);
     }
 }
 
-bool updateLeds(void*)
+void IRAM_ATTR updateLeds()
 {
-    ledTimer = true;
-    return true;
+    portENTER_CRITICAL(&ledTimerMutex);
+    ledTimerHappened = true;
+    portEXIT_CRITICAL(&ledTimerMutex);
 }
 
-bool updateDisplayedTime(void*)
+void IRAM_ATTR updateDisplayedTime()
 {
-    displayedTimeTimer = true;
-    return true;
+    portENTER_CRITICAL(&displayTimerMutex);
+    displayedTimeTimerHappened = true;
+    portEXIT_CRITICAL(&displayTimerMutex);
 }
 
 binary_clock::TimePoint readCurrentTimePoint()
@@ -187,26 +202,6 @@ binary_clock::TimePoint readCurrentTimePoint()
     static tm localTime; // the structure tm holds time information in a more convenient way
     time(&now);          // read the current time
     localtime_r(&now, &localTime); // update the structure tm with the current time
-
-    Serial.print("year:");
-    Serial.print(localTime.tm_year + 1900); // years since 1900
-    Serial.print("\tmonth:");
-    Serial.print(localTime.tm_mon + 1); // January = 0 (!)
-    Serial.print("\tday:");
-    Serial.print(localTime.tm_mday); // day of month
-    Serial.print("\thour:");
-    Serial.print(localTime.tm_hour); // hours since midnight 0-23
-    Serial.print("\tmin:");
-    Serial.print(localTime.tm_min); // minutes after the hour 0-59
-    Serial.print("\tsec:");
-    Serial.print(localTime.tm_sec); // seconds after the minute 0-61*
-    Serial.print("\twday");
-    Serial.print(localTime.tm_wday); // days since Sunday 0-6
-    if (localTime.tm_isdst == 1)     // Daylight Saving Time flag
-        Serial.print("\tDST");
-    else
-        Serial.print("\tstandard");
-    Serial.println();
 
     binary_clock::TimePoint result;
     result.hour.value = localTime.tm_hour;
@@ -258,25 +253,16 @@ void Clock::printTimeOnLeds()
 
 void Clock::printSecond(const TimePoint& timePoint) const
 {
-    Serial.print("Print Second: ");
-    Serial.print(timePoint.second.value);
-    Serial.print('\n');
     printTimePoint(timePoint.second, SECONDS_GND);
 }
 
 void Clock::printMinute(const TimePoint& timePoint) const
 {
-    Serial.print("Print Minute: ");
-    Serial.print(timePoint.minute.value);
-    Serial.print('\n');
     printTimePoint(timePoint.minute, MINUTES_GND);
 }
 
 void Clock::printHour(const TimePoint& timePoint) const
 {
-    Serial.print("Print Hour: ");
-    Serial.print(timePoint.hour.value);
-    Serial.print('\n');
     printTimePoint(timePoint.hour, HOURS_GND);
 }
 
