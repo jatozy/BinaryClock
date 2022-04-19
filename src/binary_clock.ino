@@ -1,4 +1,13 @@
-#include <RTClib.h>
+#include <WiFi.h>
+#include <arduino-timer.h>
+#include <time.h>
+
+#include "wifi_credentials.hpp"
+
+#ifndef WIFI_SSID
+#define WIFI_SSID "ssid"
+#define WIFI_PASSWORD "password"
+#endif
 
 namespace binary_clock
 {
@@ -32,40 +41,38 @@ struct TimePoint
     }
 };
 
-using TimePointReader = TimePoint (*)();
 using PinWriter = void (*)(uint8_t pin, uint8_t value);
-using PinReader = int (*)(uint8_t pin);
-using AdjustRtc = void (*)(uint8_t hour, uint8_t minute);
 
 class Clock
 {
 public:
-    static constexpr auto HOURS_GND = 4;
-    static constexpr auto MINUTES_GND = 7;
-    static constexpr auto SECONDS_GND = 8;
-    static constexpr auto PIN_32 = 3;
-    static constexpr auto PIN_16 = 5;
-    static constexpr auto PIN_8 = 6;
-    static constexpr auto PIN_4 = 11;
-    static constexpr auto PIN_2 = 10;
-    static constexpr auto PIN_1 = 9;
-    static constexpr auto DCF77_SIGNAL = 12;
+    static constexpr auto NTP_SERVER = "1.de.pool.ntp.org";
+    // choose your time zone from this list
+    // https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+    static constexpr auto TIME_ZONE = "CET-1CEST,M3.5.0,M10.5.0/3";
+
+    static constexpr auto LED_UPDATE_INTERVAL_MS = 1000;
+    static constexpr auto TIMEPOINT_UPDATE_INTERVAL_MS = 10000;
+
+    static constexpr auto HOURS_GND = 18;
+    static constexpr auto MINUTES_GND = 19;
+    static constexpr auto SECONDS_GND = 21;
+    static constexpr auto PIN_32 = 23;
+    static constexpr auto PIN_16 = 34;
+    static constexpr auto PIN_8 = 32;
+    static constexpr auto PIN_4 = 33;
+    static constexpr auto PIN_2 = 26;
+    static constexpr auto PIN_1 = 14;
 
 public:
-    Clock(TimePointReader timePointReader,
-          PinWriter writePin,
-          PinReader readPin,
-          AdjustRtc adjustRtc);
+    Clock(PinWriter writePin);
 
     /**
      * @brief Call this function every 5 milliseconds.
      */
     void controllLeds();
 
-    /**
-     * @brief Call this function every 10 milliseconds.
-     */
-    void processDcf77Signal();
+    void updateDisplayedTime(const TimePoint& displayedTime);
 
 private:
     enum class SelectedTimeWriter
@@ -75,14 +82,6 @@ private:
         Hour
     };
 
-    static constexpr auto DFC77_SAMPLES_IN_SECOND = 100;
-    static constexpr auto DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION = 15;
-    static constexpr auto DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION = 60;
-    static constexpr auto DFC77_NECESSARY_SAMPLES = 100;
-    static constexpr auto DFC77_NUMBER_RECEIVED_BITS = 59;
-    static constexpr auto SIZE_OF_HISTORY_OF_RECEIVED_ZEROS = 30;
-    static constexpr auto NUMBER_OF_LEADING_ONES_IN_SYNCHRONIZED_SIGNAL = 5;
-
 private:
     void printIdleStateOnLeds();
     void printTimeOnLeds();
@@ -91,66 +90,49 @@ private:
     void printHour(const TimePoint& timePoint) const;
     void printTimePoint(const TimePointValue& value, int groundPin) const;
 
-    void synchronizeDcf77(int sample);
     void readAndInterpretDcf77(int sample);
-    void interpretDcf77Second();
-    void interpretAndUseDcf77Minute();
-    void calculateMeanNumberZerosForIdleDisplay();
     void prepareDcf77VariablesForNextSecond();
-    void checkIfDcf77MustBeResynchronized();
 
 private:
-    TimePointReader m_readTimePoint = nullptr;
     PinWriter m_writePin = nullptr;
-    PinReader m_readPin = nullptr;
-    AdjustRtc m_adjustRtc = nullptr;
+
+    TimePoint m_displayedTime;
 
     SelectedTimeWriter m_nextTimeWriter = SelectedTimeWriter::Second;
     bool m_realTimeClockCanBeUsed = true;
-    uint8_t m_historyOfReceivedZeros[SIZE_OF_HISTORY_OF_RECEIVED_ZEROS] = {0};
-    uint8_t m_historyOfReceivedZerosCount = 0;
     TimePointValue m_meanValueOfReceivedZeros = {0};
-
-    bool m_dcf77IsSynchronized = false;
-    uint8_t m_dcf77IgnoreSamples = 0;
-    uint8_t m_dcf77SampleCounter = 0;
-    uint8_t m_dcf77BitsCounter = 0;
-    uint8_t m_dcf77NumberZerosPerSamplesSecond = 0;
-    uint8_t m_dcf77ReceivedBits[DFC77_NUMBER_RECEIVED_BITS] = {0};
-    uint8_t m_leadingSamplesValue = 0;
 };
 } // namespace binary_clock
 
 binary_clock::TimePoint readCurrentTimePoint();
-void adjustRtc(uint8_t hour, uint8_t minute);
+bool updateLeds(void*);
+bool updateDisplayedTime(void*);
 
-RTC_DS3231 rtc;
-unsigned int ledTimer = 0;
-unsigned int dcf77Timer = 0;
-binary_clock::Clock clock(&readCurrentTimePoint, &digitalWrite, &digitalRead, &adjustRtc);
+bool ledTimer = false;
+bool displayedTimeTimer = false;
+auto timer = timer_create_default();
+binary_clock::Clock binaryClock(&digitalWrite);
 
 void setup()
 {
-    Serial.begin(9600);
+    Serial.begin(115200);
+    Serial.println("\nNTP TZ DST - bare minimum");
 
-    if (!rtc.begin())
+    configTime(
+        0, 0, binary_clock::Clock::NTP_SERVER);      // 0, 0 because we will use TZ in the next line
+    setenv("TZ", binary_clock::Clock::TIME_ZONE, 1); // Set environment variable with your time zone
+    tzset();
+
+    // start network
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED)
     {
-        // Serial.println("Couldn't find RTC");
-        Serial.flush();
-        abort();
+        delay(200);
+        Serial.print(".");
     }
-
-    // Serial.println("Setting the time...");
-    rtc.adjust(DateTime(0, 0, 0, 19, 35, 36));
-
-    TCCR0A = (1 << WGM01); // Set the CTC mode
-    OCR0A = 0xF9;          // Value for ORC0A for 1ms
-
-    TIMSK0 |= (1 << OCIE0A); // Set the interrupt request
-    sei();                   // Enable interrupt
-
-    TCCR0B |= (1 << CS01); // Set the prescale 1/64 clock
-    TCCR0B |= (1 << CS00);
+    Serial.println("\nWiFi connected");
 
     pinMode(binary_clock::Clock::SECONDS_GND, OUTPUT);
     pinMode(binary_clock::Clock::MINUTES_GND, OUTPUT);
@@ -161,309 +143,140 @@ void setup()
     pinMode(binary_clock::Clock::PIN_8, OUTPUT);
     pinMode(binary_clock::Clock::PIN_16, OUTPUT);
     pinMode(binary_clock::Clock::PIN_32, OUTPUT);
-    pinMode(binary_clock::Clock::DCF77_SIGNAL, INPUT_PULLUP);
 
     digitalWrite(binary_clock::Clock::SECONDS_GND, HIGH);
     digitalWrite(binary_clock::Clock::MINUTES_GND, HIGH);
     digitalWrite(binary_clock::Clock::HOURS_GND, HIGH);
+
+    timer.every(binary_clock::Clock::LED_UPDATE_INTERVAL_MS, updateLeds);
+    timer.every(binary_clock::Clock::TIMEPOINT_UPDATE_INTERVAL_MS, updateDisplayedTime);
 }
 
 void loop()
 {
-    if (ledTimer >= 5)
+    timer.tick();
+
+    if (ledTimer)
     {
-        ledTimer = 0;
-        clock.controllLeds();
+        binaryClock.controllLeds();
+        ledTimer = false;
     }
 
-    if (dcf77Timer >= 10)
+    if (displayedTimeTimer)
     {
-        dcf77Timer = 0;
-        clock.processDcf77Signal();
+        binaryClock.updateDisplayedTime(readCurrentTimePoint());
+        displayedTimeTimer = false;
     }
 }
 
-ISR(TIMER0_COMPA_vect)
+bool updateLeds(void*)
 {
-    ledTimer++;
-    dcf77Timer++;
+    ledTimer = true;
+    return true;
+}
+
+bool updateDisplayedTime(void*)
+{
+    displayedTimeTimer = true;
+    return true;
 }
 
 binary_clock::TimePoint readCurrentTimePoint()
 {
-    const auto now = rtc.now();
+    static time_t now;   // this is the epoch
+    static tm localTime; // the structure tm holds time information in a more convenient way
+    time(&now);          // read the current time
+    localtime_r(&now, &localTime); // update the structure tm with the current time
+
+    Serial.print("year:");
+    Serial.print(localTime.tm_year + 1900); // years since 1900
+    Serial.print("\tmonth:");
+    Serial.print(localTime.tm_mon + 1); // January = 0 (!)
+    Serial.print("\tday:");
+    Serial.print(localTime.tm_mday); // day of month
+    Serial.print("\thour:");
+    Serial.print(localTime.tm_hour); // hours since midnight 0-23
+    Serial.print("\tmin:");
+    Serial.print(localTime.tm_min); // minutes after the hour 0-59
+    Serial.print("\tsec:");
+    Serial.print(localTime.tm_sec); // seconds after the minute 0-61*
+    Serial.print("\twday");
+    Serial.print(localTime.tm_wday); // days since Sunday 0-6
+    if (localTime.tm_isdst == 1)     // Daylight Saving Time flag
+        Serial.print("\tDST");
+    else
+        Serial.print("\tstandard");
+    Serial.println();
 
     binary_clock::TimePoint result;
-    result.hour.value = now.hour();
-    result.minute.value = now.minute();
-    result.second.value = now.second();
+    result.hour.value = localTime.tm_hour;
+    result.minute.value = localTime.tm_min;
+    result.second.value = localTime.tm_sec;
 
     return result;
 }
 
-void adjustRtc(uint8_t hour, uint8_t minute)
-{
-    DateTime newTime(0, 0, 0, hour, minute, 0);
-
-    // Serial.println("Adjust real time clock.");
-    //  rtc.adjust(newTime);
-}
-
 namespace binary_clock
 {
-
-Clock::Clock(TimePointReader readTimePoint,
-             PinWriter writePin,
-             PinReader readPin,
-             AdjustRtc adjustRtc)
-    : m_readTimePoint(readTimePoint),
-      m_writePin(writePin),
-      m_readPin(readPin),
-      m_adjustRtc(adjustRtc)
+Clock::Clock(PinWriter writePin) : m_writePin(writePin)
 {
-}
-
-void Clock::processDcf77Signal()
-{
-    if (!m_readPin)
-    {
-        return;
-    }
-
-    const auto dcf77Sample = m_readPin(DCF77_SIGNAL);
-
-    if (!m_dcf77IsSynchronized)
-    {
-        synchronizeDcf77(dcf77Sample);
-    }
-    else
-    {
-        readAndInterpretDcf77(dcf77Sample);
-    }
-}
-
-void Clock::readAndInterpretDcf77(int sample)
-{
-    if (m_dcf77IgnoreSamples > 0)
-    {
-        m_dcf77IgnoreSamples--;
-        return;
-    }
-
-    if (m_dcf77SampleCounter < DFC77_NECESSARY_SAMPLES)
-    {
-        // Serial.print(sample, DEC);
-        m_dcf77NumberZerosPerSamplesSecond += (sample == 0) ? 1 : 0;
-
-        if (m_dcf77SampleCounter < NUMBER_OF_LEADING_ONES_IN_SYNCHRONIZED_SIGNAL)
-        {
-            m_leadingSamplesValue += sample;
-        }
-    }
-
-    m_dcf77SampleCounter++;
-
-    if (m_dcf77SampleCounter >= DFC77_SAMPLES_IN_SECOND)
-    {
-        if (m_dcf77NumberZerosPerSamplesSecond <= 5)
-        {
-            interpretAndUseDcf77Minute();
-        }
-        else
-        {
-            interpretDcf77Second();
-        }
-
-        // Serial.print('\n');
-        calculateMeanNumberZerosForIdleDisplay();
-        checkIfDcf77MustBeResynchronized();
-        prepareDcf77VariablesForNextSecond();
-    }
-}
-
-void Clock::calculateMeanNumberZerosForIdleDisplay()
-{
-    m_historyOfReceivedZeros[m_historyOfReceivedZerosCount] = m_dcf77NumberZerosPerSamplesSecond;
-    m_historyOfReceivedZerosCount++;
-    if (m_historyOfReceivedZerosCount >= SIZE_OF_HISTORY_OF_RECEIVED_ZEROS)
-    {
-        m_historyOfReceivedZerosCount = 0;
-    }
-
-    m_meanValueOfReceivedZeros.value = 0;
-    for (const auto& zeros : m_historyOfReceivedZeros)
-    {
-        m_meanValueOfReceivedZeros.value += zeros;
-    }
-    m_meanValueOfReceivedZeros.value /= SIZE_OF_HISTORY_OF_RECEIVED_ZEROS;
-
-    if (m_meanValueOfReceivedZeros.value >= 64)
-    {
-        m_meanValueOfReceivedZeros.value = 63;
-    }
-}
-
-void Clock::prepareDcf77VariablesForNextSecond()
-{
-    m_dcf77NumberZerosPerSamplesSecond = 0;
-    m_dcf77SampleCounter = 0;
-    m_leadingSamplesValue = 0;
-}
-
-void Clock::checkIfDcf77MustBeResynchronized()
-{
-    if (m_leadingSamplesValue == 0)
-    {
-        // Serial.println("Resynchronize");
-        m_dcf77IsSynchronized = false;
-    }
-}
-
-void Clock::interpretDcf77Second()
-{
-    if (m_dcf77BitsCounter >= DFC77_NUMBER_RECEIVED_BITS)
-    {
-        m_dcf77BitsCounter = 0;
-    }
-
-    if (m_dcf77NumberZerosPerSamplesSecond > 15)
-    {
-        m_dcf77ReceivedBits[m_dcf77BitsCounter] = 1;
-    }
-    else
-    {
-        m_dcf77ReceivedBits[m_dcf77BitsCounter] = 0;
-    }
-
-    m_dcf77BitsCounter++;
-}
-
-void Clock::interpretAndUseDcf77Minute()
-{
-    int minute = m_dcf77ReceivedBits[21] + (m_dcf77ReceivedBits[22] << 1) +
-                 (m_dcf77ReceivedBits[23] << 2) + (m_dcf77ReceivedBits[24] << 3);
-    minute = minute + ((m_dcf77ReceivedBits[25] + (m_dcf77ReceivedBits[26] << 1) +
-                        (m_dcf77ReceivedBits[27] << 2)) *
-                       10);
-
-    int hour = m_dcf77ReceivedBits[29] + (m_dcf77ReceivedBits[30] << 1) +
-               (m_dcf77ReceivedBits[31] << 2) + (m_dcf77ReceivedBits[32] << 3);
-    hour = hour + ((m_dcf77ReceivedBits[33] + (m_dcf77ReceivedBits[34] << 1)) * 10);
-
-    // Serial.print('\t');
-    if (hour < 10)
-    {
-        // Serial.print('0');
-    }
-    // Serial.print(hour, DEC);
-    // Serial.print(':');
-    if (minute < 10)
-    {
-        // Serial.print('0');
-    }
-    // Serial.print(minute, DEC);
-    // Serial.print('\n');
-    // Serial.print('\n');
-    for (const auto& i : m_dcf77ReceivedBits)
-    {
-        // Serial.print(i, DEC);
-    }
-    // Serial.print('\n');
-    // Serial.print('\n');
-    m_dcf77BitsCounter = 0;
-
-    if (m_adjustRtc)
-    {
-        m_adjustRtc(hour, minute);
-        m_realTimeClockCanBeUsed = true;
-    }
-}
-
-void Clock::synchronizeDcf77(int sample)
-{
-    if (sample == 0)
-    {
-        m_dcf77SampleCounter++;
-    }
-    else
-    {
-        m_dcf77SampleCounter = 0;
-    }
-
-    if (m_dcf77SampleCounter == DFC77_ZEROS_IN_LINE_FOR_SYNCHRONIZATION)
-    {
-        m_dcf77IsSynchronized = true;
-        m_dcf77IgnoreSamples = DFC77_IGNORED_SAMPLES_AFTER_SYNCHRONIZATION;
-        m_dcf77SampleCounter = 0;
-    }
 }
 
 void Clock::controllLeds()
 {
-    if (!m_readTimePoint || !m_writePin)
+    if (!m_writePin)
     {
         return;
     }
 
-    if (m_realTimeClockCanBeUsed)
-    {
-        printTimeOnLeds();
-    }
-    else
-    {
-        printIdleStateOnLeds();
-    }
+    printTimeOnLeds();
 }
 
-void Clock::printIdleStateOnLeds()
+void Clock::updateDisplayedTime(const TimePoint& displayedTime)
 {
-    m_writePin(HOURS_GND, 1);
-    m_writePin(MINUTES_GND, 1);
-    m_writePin(SECONDS_GND, 1);
-
-    m_writePin(PIN_1, m_meanValueOfReceivedZeros.bit0);
-    m_writePin(PIN_2, m_meanValueOfReceivedZeros.bit1);
-    m_writePin(PIN_4, m_meanValueOfReceivedZeros.bit2);
-    m_writePin(PIN_8, m_meanValueOfReceivedZeros.bit3);
-    m_writePin(PIN_16, m_meanValueOfReceivedZeros.bit4);
-    m_writePin(PIN_32, m_meanValueOfReceivedZeros.bit5);
-
-    m_writePin(MINUTES_GND, 0);
+    m_displayedTime = displayedTime;
 }
 
 void Clock::printTimeOnLeds()
 {
-    const auto timePoint = m_readTimePoint();
-
     if (m_nextTimeWriter == SelectedTimeWriter::Second)
     {
-        printSecond(timePoint);
+        printSecond(m_displayedTime);
         m_nextTimeWriter = SelectedTimeWriter::Minute;
     }
     else if (m_nextTimeWriter == SelectedTimeWriter::Minute)
     {
-        printMinute(timePoint);
+        printMinute(m_displayedTime);
         m_nextTimeWriter = SelectedTimeWriter::Hour;
     }
     else if (m_nextTimeWriter == SelectedTimeWriter::Hour)
     {
-        printHour(timePoint);
+        printHour(m_displayedTime);
         m_nextTimeWriter = SelectedTimeWriter::Second;
     }
 }
 
 void Clock::printSecond(const TimePoint& timePoint) const
 {
+    Serial.print("Print Second: ");
+    Serial.print(timePoint.second.value);
+    Serial.print('\n');
     printTimePoint(timePoint.second, SECONDS_GND);
 }
 
 void Clock::printMinute(const TimePoint& timePoint) const
 {
+    Serial.print("Print Minute: ");
+    Serial.print(timePoint.minute.value);
+    Serial.print('\n');
     printTimePoint(timePoint.minute, MINUTES_GND);
 }
 
 void Clock::printHour(const TimePoint& timePoint) const
 {
+    Serial.print("Print Hour: ");
+    Serial.print(timePoint.hour.value);
+    Serial.print('\n');
     printTimePoint(timePoint.hour, HOURS_GND);
 }
 
